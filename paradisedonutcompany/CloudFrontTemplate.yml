@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC and EC2 Setup with RDS
+
+Parameters:
+  VpcCidrBlock:
+    Type: String
+    Default: 172.16.0.0/16
+    Description: CIDR block for the VPC
+
+  PublicSubnetACidrBlock:
+    Type: String
+    Default: 172.16.0.0/24
+    Description: CIDR block for Subnet A
+
+  PublicSubnetBCidrBlock:
+    Type: String
+    Default: 172.16.1.0/24
+    Description: CIDR block for Subnet B
+
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    Description: Allocated storage for the DB instance in GB
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    Description: Instance class for the DB instance
+
+  MasterUsername:
+    Type: String
+    Description: Master username for the DB instance
+
+  MasterUserPassword:
+    Type: String
+    NoEcho: true
+    Description: Master user password for the DB instance
+
+Resources:
+  PDCVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
+
+  INTERNETGATEWAY:
+    Type: AWS::EC2::InternetGateway
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref PDCVPC
+      InternetGatewayId: !Ref INTERNETGATEWAY
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PDCVPC
+      CidrBlock: !Ref PublicSubnetACidrBlock
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      MapPublicIpOnLaunch: true
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PDCVPC
+      CidrBlock: !Ref PublicSubnetBCidrBlock
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+
+  PDCROUTETABLE:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref PDCVPC
+
+  INTERNETROUTE:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref INTERNETGATEWAY
+      RouteTableId: !Ref PDCROUTETABLE
+
+  SUBNETAROUTETABLEASSOCIATION:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PDCROUTETABLE
+      SubnetId: !Ref SubnetA
+
+  WEBSECURITYGROUP:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Web security group that allows 80 and 22
+      VpcId: !Ref PDCVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  DBSECURITYGROUP:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref PDCVPC
+      GroupDescription: Security group for the Database Server
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  WEBSERVER:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0b7d9d3c180d0596f
+      KeyName: EC2Key
+      InstanceType: t2.micro
+      SubnetId: !Ref SubnetA
+      SecurityGroupIds:
+        - !Ref WEBSECURITYGROUP
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+
+  MyDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets available for the RDS DB Instance
+      SubnetIds:
+        - !Ref SubnetA
+        - !Ref SubnetB
+
+  MyDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: !Ref DBAllocatedStorage
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: MySQL
+      EngineVersion: 8.0.39
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterUserPassword
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DBSECURITYGROUP
+      PubliclyAccessible: false
