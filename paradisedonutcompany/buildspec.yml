@@ -1,0 +1,21 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      dotnet: 6.0  # Change to your version of .NET
+    commands:
+      - echo Installing dependencies...
+      - dotnet restore  # Restores dependencies
+  build:
+    commands:
+      - echo Building the application...
+      - dotnet publish -c Release -o ./output  # Publish the application
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - aws s3 cp ./output s3://<YOUR_BUCKET_NAME>/ --recursive  # Change to your S3 bucket name
+artifacts:
+  files:
+    - '**/*'
+  base-directory: output  # Adjust based on your output directory
